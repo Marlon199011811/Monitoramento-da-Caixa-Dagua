@@ -1,0 +1,183 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+
+// ================= ESP-01 =================
+SoftwareSerial espSerial(6, 7); // RX, TX
+
+// ================= LCD ====================
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ================= MICRO BOIAS ============
+#define B25   2
+#define B50   3
+#define B75   4
+#define B100  5
+
+#define B_POWER 12   // Liga/desliga LCD
+
+// ================= LEDS ===================
+#define L25   8
+#define L50   9
+#define L75   10
+#define L100  11
+
+// ================= BUZZER =================
+#define BUZZER 13
+
+// ================= VARIÁVEIS ==============
+bool lcdLigado = true;
+bool lastBPower = HIGH;
+
+int ultimoNivel = -1;
+
+// ======== CONTROLE DE PISCA ========
+unsigned long lastBlink = 0;
+bool blinkState = true;
+const unsigned long blinkInterval = 500;
+
+// ======== CONTROLE DO BUZZER ========
+bool buzzerAtivo = false;
+bool buzzerLigado = false;
+bool jaDisparouBuzzer = false;
+unsigned long buzzerStart = 0;
+unsigned long lastBuzzerToggle = 0;
+const unsigned long buzzerTempo = 10000;
+const unsigned long buzzerInterval = 300;
+
+// ================= FUNÇÕES =================
+void desligarLCD() {
+  lcd.noBacklight();
+  lcd.noDisplay();
+}
+
+void ligarLCD() {
+  lcd.display();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Caixa D'agua");
+}
+
+// ================= SETUP ===================
+void setup() {
+  pinMode(B25, INPUT_PULLUP);
+  pinMode(B50, INPUT_PULLUP);
+  pinMode(B75, INPUT_PULLUP);
+  pinMode(B100, INPUT_PULLUP);
+  pinMode(B_POWER, INPUT_PULLUP);
+
+  pinMode(L25, OUTPUT);
+  pinMode(L50, OUTPUT);
+  pinMode(L75, OUTPUT);
+  pinMode(L100, OUTPUT);
+
+  pinMode(BUZZER, OUTPUT);
+  noTone(BUZZER);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("Caixa D'agua");
+
+  espSerial.begin(9600);
+}
+
+// ================= LOOP ====================
+void loop() {
+
+  // ===== BOTÃO POWER =====
+  bool bPower = digitalRead(B_POWER);
+  if (lastBPower == HIGH && bPower == LOW) {
+    lcdLigado = !lcdLigado;
+    if (lcdLigado) ligarLCD();
+    else desligarLCD();
+    delay(200);
+  }
+  lastBPower = bPower;
+
+  // ===== LEITURA DAS MICRO BOIAS =====
+  bool n25  = (digitalRead(B25)  == LOW);
+  bool n50  = (digitalRead(B50)  == LOW);
+  bool n75  = (digitalRead(B75)  == LOW);
+  bool n100 = (digitalRead(B100) == LOW);
+
+  // ===== CORREÇÃO DE NÍVEL =====
+  if (!n25)  n50 = n75 = n100 = false;
+  if (!n50)  n75 = n100 = false;
+  if (!n75)  n100 = false;
+
+  // ===== CALCULA PERCENTUAL =====
+  int percentual = 0;
+  if (n100) percentual = 100;
+  else if (n75) percentual = 75;
+  else if (n50) percentual = 50;
+  else if (n25) percentual = 25;
+
+  // ===== BUZZER EM 25% =====
+  if (percentual == 25 && !jaDisparouBuzzer) {
+    buzzerAtivo = true;
+    buzzerStart = millis();
+    lastBuzzerToggle = millis();
+    buzzerLigado = false;
+    jaDisparouBuzzer = true;
+  }
+
+  if (percentual != 25) {
+    buzzerAtivo = false;
+    jaDisparouBuzzer = false;
+    noTone(BUZZER);
+  }
+
+  if (buzzerAtivo) {
+    if (millis() - lastBuzzerToggle >= buzzerInterval) {
+      lastBuzzerToggle = millis();
+      buzzerLigado = !buzzerLigado;
+      if (buzzerLigado) tone(BUZZER, 1000);
+      else noTone(BUZZER);
+    }
+
+    if (millis() - buzzerStart >= buzzerTempo) {
+      buzzerAtivo = false;
+      noTone(BUZZER);
+    }
+  }
+
+  // ===== LED 25% PISCANDO =====
+  if (percentual == 25) {
+    if (millis() - lastBlink >= blinkInterval) {
+      lastBlink = millis();
+      blinkState = !blinkState;
+    }
+    digitalWrite(L25, blinkState);
+    if (lcdLigado) {
+      if (blinkState) lcd.display();
+      else lcd.noDisplay();
+    }
+  } else {
+    blinkState = true;
+    digitalWrite(L25, n25);
+    if (lcdLigado) lcd.display();
+  }
+
+  digitalWrite(L50, n50);
+  digitalWrite(L75, n75);
+  digitalWrite(L100, n100);
+
+  // ===== LCD =====
+  if (lcdLigado && blinkState) {
+    lcd.setCursor(0, 1);
+    lcd.print("Nivel: ");
+    lcd.print(percentual);
+    lcd.print("%   ");
+  }
+
+  // ===== ENVIO ESP =====
+  if (percentual != ultimoNivel) {
+    espSerial.print("NIVEL:");
+    espSerial.println(percentual);
+    ultimoNivel = percentual;
+  }
+
+  delay(40);
+}
