@@ -1,54 +1,36 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 
-const char* ssid = "SEU_WIFI";
-const char* password = "SUA_SENHA";
+const char* ssid = "SUA_REDE_WIFI";
+const char* password = "SUA_SENHA_WIFI";
 
-// URL que vai receber o nível
-// Exemplo: http://192.168.1.100:1880/nivel?valor=25
-const char* serverUrl = "http://SEU_SERVIDOR/nivel";
-
-WiFiClient client;
-
-String bufferSerial = "";
+const char* serverUrl =
+"https://script.google.com/macros/s/SEU_SCRIPT_ID/exec";
 
 void setup() {
   Serial.begin(9600);
 
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
 }
 
 void loop() {
-  while (Serial.available()) {
-    char c = Serial.read();
+  if (Serial.available()) {
+    String dados = Serial.readStringUntil('\n');
 
-    if (c == '\n') {
-      processaMensagem(bufferSerial);
-      bufferSerial = "";
-    } else {
-      bufferSerial += c;
+    if (dados.startsWith("NIVEL:")) {
+      int nivel = dados.substring(6).toInt();
+
+      if (nivel > 0 && WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String url = String(serverUrl) + "?nivel=" + String(nivel);
+
+        http.begin(url);
+        http.GET();
+        http.end();
+      }
     }
-  }
-}
-
-void processaMensagem(String msg) {
-  msg.trim();
-
-  if (!msg.startsWith("NIVEL:")) return;
-
-  String nivel = msg.substring(6);
-
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-
-    String url = String(serverUrl) + "?valor=" + nivel;
-
-    http.begin(client, url);
-    http.GET();
-    http.end();
   }
 }
