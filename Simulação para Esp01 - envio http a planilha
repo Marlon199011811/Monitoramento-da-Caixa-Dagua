@@ -1,0 +1,71 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+
+#define BUILTIN_LED_1 1   // GPIO1 (TX) – LED azul ESP-01S (ativo em LOW)
+
+const char* ssid = "ENGENHARIA 2.4G";
+const char* password = "ENGENHARIA2025";
+
+const char* serverUrl =
+"https://script.google.com/macros/s/AKfycbyDPmNGUI054O5IgN7tCfNcM_EMn9WsJ2V6N3HbYOg-Y01XTIcPJNHL-SoXemEo9h8/exec";
+
+// Simulação de nível
+int niveis[] = {25, 50, 75, 100};
+int indice = 0;
+
+unsigned long ultimoEnvio = 0;
+const unsigned long intervalo = 5000;
+
+void setup() {
+  pinMode(BUILTIN_LED_1, OUTPUT);
+  digitalWrite(BUILTIN_LED_1, HIGH); // LED apagado
+
+  Serial.begin(9600);
+  delay(100);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    digitalWrite(BUILTIN_LED_1, LOW);
+    delay(200);
+    digitalWrite(BUILTIN_LED_1, HIGH);
+    delay(200);
+  }
+
+  digitalWrite(BUILTIN_LED_1, LOW); // Conectado
+  Serial.println("WiFi conectado");
+}
+
+void loop() {
+
+  if (WiFi.status() != WL_CONNECTED) {
+    digitalWrite(BUILTIN_LED_1, HIGH);
+    WiFi.reconnect();
+    return;
+  }
+
+  if (millis() - ultimoEnvio >= intervalo) {
+    ultimoEnvio = millis();
+
+    int nivel = niveis[indice];
+
+    WiFiClientSecure client;
+    client.setInsecure();  // 🔑 ESSENCIAL PARA HTTPS
+
+    HTTPClient http;
+
+    String url = String(serverUrl) + "?nivel=" + String(nivel);
+
+    Serial.println(url);
+
+    if (http.begin(client, url)) {
+      int httpCode = http.GET();
+      Serial.println("HTTP code: " + String(httpCode));
+      http.end();
+    }
+
+    indice++;
+    if (indice >= 4) indice = 0;
+  }
+}
